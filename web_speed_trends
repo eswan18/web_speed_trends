@@ -2,7 +2,7 @@
 import datetime as dt
 import Queue as q
 import time
-
+import subprocess
 
 #For development, hardcoded time: run for a week, once every 60 minutes
 days_run = 7
@@ -29,14 +29,19 @@ while (not times.full()):
 	times.put(q_time)
 	q_time = q_time + interval
 
+running_string = ""
+
 #Running & Waiting
 next_time = times.get()
 while(1):
 	#If it's time to run the next test
 	if(dt.datetime.now() >= next_time):
-		#RUN
-		print "Running at"
-		print dt.datetime.now()
+		#Run the test
+		test = subprocess.Popen(["speedtest", "--csv"], stdout=subprocess.PIPE)
+		#Wait for it to return, get the output, and append it to the full output string
+		output = test.communicate()[0]
+		running_string = running_string + "\n" + output
+
 		#If we've emptied the queue, end the loop
 		if(times.empty()):
 			break
@@ -45,3 +50,5 @@ while(1):
 			next_time = times.get()
 	#wait for a minute
 	time.sleep(1)
+
+print running_string
