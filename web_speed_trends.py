@@ -17,7 +17,7 @@ import queue as q
 days_run = 7
 hours_run = 0
 minutes_run = 0
-minutes_interval = 1
+minutes_interval = 60
 
 # Convert everything to minutes
 #(add an extra minute of buffer time because we're spending a (tiny) amount of time on initialization)
@@ -43,14 +43,15 @@ next_time = times.get()
 while(1):
     # If it's time to run the next test
     if(dt.datetime.now() >= next_time):
+        # Run the speedtest
         s = speedtest.Speedtest()
         s.get_servers([])
         s.get_best_server()
         s.download()
         s.upload()
         s.results.share()
-
         results = s.results.dict()
+
         # Extract only the values we want.
         download = results['download']
         upload = results['upload']
