@@ -1,7 +1,9 @@
 library(tidyverse)
+library(broom)
 library(lubridate)
 library(RSQLite)
 library(scales)
+library(RcppRoll)
 
 ###############################################################################
 # Read in the file.
@@ -10,12 +12,14 @@ setwd('~/Data Science/Syntact/web_speed_trends/')
 con <- dbConnect(SQLite(), dbname="data.db")
 query <- dbSendQuery(con, "SELECT * FROM data")
 speeds <- dbFetch(query, n = -1)
+#dbDisconnect(con)
 # And the columns appear to be mixed up - sloppy work by me. Luckily
 # it's easy to figure out which should be which.
 colnames(speeds) <- c('download', 'timestamp', 'upload', 'ping')
-# Convert 'download' and 'upload' columns to numbers
+# Convert 'download' and 'upload' and 'ping' columns to numbers
 speeds$download <- as.numeric(speeds$download)
 speeds$upload <- as.numeric(speeds$upload)
+speeds$ping <- as.numeric(speeds$ping)
 # The first three rows of the data are superfluous (duplicate readings,
 # taken at the same time as the fourth row).
 speeds <- speeds[-1:-3,]
@@ -47,24 +51,37 @@ speeds$minute <- minute(speeds$timestamp)
 speeds$second <- second(speeds$timestamp)
 # Drop the old timestamp column
 speeds <- speeds %>% select(-timestamp)
+# Before moving things around, let's keep only 1 observation for each hour
+speeds <- speeds %>% 
+  group_by(weekday, hour) %>% 
+  summarize(upload = mean(upload),
+            download = mean(download),
+            ping = mean(ping)) %>% 
+  ungroup()
 # Move everything to a date during the same week
 speeds$adj_day <- as.numeric(speeds$weekday) + 3
 speeds$adj_month <- 1; speeds$adj_year <- 1970
 speeds$adj_tmstmp <- paste0(speeds$adj_year, '-', speeds$adj_month, '-', speeds$adj_day, ' ',
-                            speeds$hour, ':', speeds$minute, ':', speeds$second)
+                            speeds$hour, ':00:00')
 speeds$adj_tmstmp <- as.POSIXct(speeds$adj_tmstmp)
 speeds <- speeds %>% arrange(adj_tmstmp)
 
 # Viz work: Plot upload and download speeds throughout the week.
-# Keep only upload & download speeds for this step
-up_down_speeds <- speeds %>% select(adj_tmstmp, upload, download)
 # First off, we need to melt the data and reshape it the way ggplot likes it.
 # The new DF will have columns 'timestamp', 'channel', and 'speed'
-up_down_speeds <- gather(data = up_down_speeds, -adj_tmstmp, key='channel', value='speed')
+up_down_speeds <- speeds %>%
+  select(adj_tmstmp, upload, download) %>% 
+  gather(-adj_tmstmp, key='channel', value='speed')
 up_down_plot <- ggplot(data = up_down_speeds, aes(x=adj_tmstmp, y=speed, group=channel)) +
   geom_line(aes(color = channel)) + expand_limits(y = 0) + 
   scale_x_datetime(breaks = date_breaks("1 day"), minor_breaks=date_breaks("1 hour"), labels=date_format("%a"))
 up_down_plot
+
+# This looks pretty noisy... it seems unlikely that this reflects real "trends".
+# Let's change it to a moving average.
+x <- up_down_speeds %>% 
+  group_by(channel) %>% 
+  mutate(y = roll_mean(.$speed, n = 3, align = 'left'))
 
 # Now let's show one-std deviation to see how much less variance is in upload.
 down_std <- sd(speeds$download)
